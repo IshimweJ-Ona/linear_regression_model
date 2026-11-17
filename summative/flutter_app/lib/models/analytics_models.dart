@@ -1,25 +1,77 @@
-class OverviewStats {
-  const OverviewStats({
+class CohortMeta {
+  const CohortMeta({
+    required this.key,
+    required this.group,
     required this.count,
-    required this.meanK,
-    required this.medianK,
-    required this.minK,
-    required this.maxK,
   });
 
+  final String key;
+  final String group;
   final int count;
+
+  factory CohortMeta.fromJson(Map<String, dynamic> json) {
+    return CohortMeta(
+      key: json['key'] as String,
+      group: json['group'] as String,
+      count: (json['count'] as num).toInt(),
+    );
+  }
+}
+
+class WagePercentile {
+  const WagePercentile({required this.pct, required this.kRwf});
+
+  final int pct;
+  final double kRwf;
+
+  factory WagePercentile.fromJson(Map<String, dynamic> json) {
+    return WagePercentile(
+      pct: (json['pct'] as num).toInt(),
+      kRwf: (json['k_rwf'] as num).toDouble(),
+    );
+  }
+}
+
+class OverviewStats {
+  const OverviewStats({
+    required this.group,
+    required this.count,
+    required this.sharePct,
+    required this.meanK,
+    required this.medianK,
+    required this.p25K,
+    required this.p75K,
+    required this.minK,
+    required this.maxK,
+    required this.femalePct,
+    required this.tvetPct,
+  });
+
+  final String group;
+  final int count;
+  final double sharePct;
   final double meanK;
   final double medianK;
+  final double p25K;
+  final double p75K;
   final double minK;
   final double maxK;
+  final double femalePct;
+  final double tvetPct;
 
   factory OverviewStats.fromJson(Map<String, dynamic> json) {
     return OverviewStats(
+      group: (json['group'] as String?) ?? 'All',
       count: (json['count'] as num).toInt(),
+      sharePct: (json['share_pct'] as num?)?.toDouble() ?? 100.0,
       meanK: (json['mean_k'] as num).toDouble(),
       medianK: (json['median_k'] as num).toDouble(),
+      p25K: (json['p25_k'] as num?)?.toDouble() ?? (json['median_k'] as num).toDouble(),
+      p75K: (json['p75_k'] as num?)?.toDouble() ?? (json['mean_k'] as num).toDouble(),
       minK: (json['min_k'] as num).toDouble(),
       maxK: (json['max_k'] as num).toDouble(),
+      femalePct: (json['female_pct'] as num?)?.toDouble() ?? 0.0,
+      tvetPct: (json['tvet_pct'] as num?)?.toDouble() ?? 0.0,
     );
   }
 }
@@ -143,6 +195,8 @@ class FeatureImportanceItem {
 
 class AnalyticsBundle {
   const AnalyticsBundle({
+    required this.cohorts,
+    required this.percentiles,
     required this.overview,
     required this.heatmap,
     required this.scatter,
@@ -151,21 +205,57 @@ class AnalyticsBundle {
     required this.featureImportance,
   });
 
+  final List<CohortMeta> cohorts;
+  final List<WagePercentile> percentiles;
   final Map<String, OverviewStats> overview;
-  final Map<String, HeatmapData> heatmap;
+  final Map<String, Map<String, HeatmapData>> heatmap;
   final Map<String, ScatterDataset> scatter;
   final Map<String, SgdCurveData> sgdCurves;
   final List<ModelMetric> modelComparison;
   final Map<String, List<FeatureImportanceItem>> featureImportance;
 
+  /// Linearly interpolates a wage (`k_rwf`) onto the empirical LFS 2022 percentile ladder.
+  int estimatePercentile(double incomeKRwf) {
+    if (percentiles.isEmpty) return 50;
+    if (incomeKRwf <= percentiles.first.kRwf) return percentiles.first.pct;
+    if (incomeKRwf >= percentiles.last.kRwf) return percentiles.last.pct;
+
+    for (var i = 1; i < percentiles.length; i++) {
+      final prev = percentiles[i - 1];
+      final curr = percentiles[i];
+      if (incomeKRwf <= curr.kRwf) {
+        final span = curr.kRwf - prev.kRwf;
+        if (span <= 0) return curr.pct;
+        final frac = (incomeKRwf - prev.kRwf) / span;
+        return (prev.pct + frac * (curr.pct - prev.pct)).round().clamp(1, 99);
+      }
+    }
+    return 99;
+  }
+
   factory AnalyticsBundle.fromJson(Map<String, dynamic> json) {
+    final rawHeatmap = json['heatmap'] as Map<String, dynamic>;
+    final parsedHeatmap = rawHeatmap.map((cohortKey, inner) {
+      final innerMap = (inner as Map<String, dynamic>).map(
+        (varSetKey, data) => MapEntry(
+          varSetKey,
+          HeatmapData.fromJson(data as Map<String, dynamic>),
+        ),
+      );
+      return MapEntry(cohortKey, innerMap);
+    });
+
     return AnalyticsBundle(
+      cohorts: ((json['cohorts'] as List?) ?? const [])
+          .map((e) => CohortMeta.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      percentiles: ((json['percentiles'] as List?) ?? const [])
+          .map((e) => WagePercentile.fromJson(e as Map<String, dynamic>))
+          .toList(),
       overview: (json['overview'] as Map<String, dynamic>).map(
         (k, v) => MapEntry(k, OverviewStats.fromJson(v as Map<String, dynamic>)),
       ),
-      heatmap: (json['heatmap'] as Map<String, dynamic>).map(
-        (k, v) => MapEntry(k, HeatmapData.fromJson(v as Map<String, dynamic>)),
-      ),
+      heatmap: parsedHeatmap,
       scatter: (json['scatter'] as Map<String, dynamic>).map(
         (k, v) => MapEntry(k, ScatterDataset.fromJson(v as Map<String, dynamic>)),
       ),

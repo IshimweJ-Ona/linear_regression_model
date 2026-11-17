@@ -1,82 +1,86 @@
 import 'package:flutter/material.dart';
 
+enum InputGroup {
+  profile('1. Worker Profile'),
+  skills('2. Education & Experience'),
+  employment('3. Job & Contract Terms');
+
+  const InputGroup(this.title);
+  final String title;
+}
+
 class InputFieldSpec {
   const InputFieldSpec({
     required this.key,
     required this.label,
     required this.helperText,
     required this.sampleValue,
+    required this.group,
     this.isNumeric = false,
     this.isInteger = false,
     this.minValue,
     this.maxValue,
     this.allowedValues,
     this.fullWidth = false,
+    this.useSearchPicker = false,
   });
 
   final String key;
   final String label;
   final String helperText;
   final String sampleValue;
+  final InputGroup group;
   final bool isNumeric;
   final bool isInteger;
   final double? minValue;
   final double? maxValue;
   final List<String>? allowedValues;
   final bool fullWidth;
+  final bool useSearchPicker;
 
   TextInputType get keyboardType => isNumeric
       ? TextInputType.numberWithOptions(decimal: !isInteger)
       : TextInputType.text;
 }
 
-/// Exact 13 input features expected by FastAPI's YouthEarningsInput schema.
+/// Contrasting realistic Rwanda LFS 2022 test presets for quick demonstration.
+const Map<String, String> kFemaleRuralAgriPreset = {
+  'age': '23',
+  'sex': 'Female',
+  'province': 'Southern Province',
+  'urban_rural': 'Rural',
+  'household_size': '5',
+  'years_schooling': '6',
+  'education_track': 'No level completed',
+  'experience_years': '3',
+  'internet_use': 'No',
+  'sector': 'Agriculture',
+  'occupation_group': 'Elementary occupations',
+  'contract_basis': 'Oral agreement',
+  'weekly_hours': '40',
+};
+
+/// Exact 13 input features expected by FastAPI's YouthEarningsInput schema,
+/// grouped intuitively for clarity while keeping every predictor as an editable TextField.
 const List<InputFieldSpec> kModelInputSpecs = [
+  // 1. Worker Profile
   InputFieldSpec(
     key: 'age',
     label: 'Age (18-35)',
-    helperText: 'Whole number 18-35',
+    helperText: 'Whole number 18–35',
     sampleValue: '25',
+    group: InputGroup.profile,
     isNumeric: true,
     isInteger: true,
     minValue: 18,
     maxValue: 35,
   ),
   InputFieldSpec(
-    key: 'years_schooling',
-    label: 'Schooling Yrs (0-22)',
-    helperText: 'Whole number 0-22',
-    sampleValue: '16',
-    isNumeric: true,
-    isInteger: true,
-    minValue: 0,
-    maxValue: 22,
-  ),
-  InputFieldSpec(
-    key: 'experience_years',
-    label: 'Experience Yrs (0-25)',
-    helperText: 'Whole number 0-25',
-    sampleValue: '3',
-    isNumeric: true,
-    isInteger: true,
-    minValue: 0,
-    maxValue: 25,
-  ),
-  InputFieldSpec(
-    key: 'weekly_hours',
-    label: 'Weekly Hours (1-100)',
-    helperText: 'Number 1-100',
-    sampleValue: '45',
-    isNumeric: true,
-    isInteger: false,
-    minValue: 1,
-    maxValue: 100,
-  ),
-  InputFieldSpec(
     key: 'household_size',
     label: 'Household Size (1-25)',
-    helperText: 'Whole number 1-25',
+    helperText: 'People in household (1–25)',
     sampleValue: '3',
+    group: InputGroup.profile,
     isNumeric: true,
     isInteger: true,
     minValue: 1,
@@ -85,66 +89,116 @@ const List<InputFieldSpec> kModelInputSpecs = [
   InputFieldSpec(
     key: 'sex',
     label: 'Sex',
-    helperText: 'Male or Female',
+    helperText: 'Tap chip or type Male / Female',
     sampleValue: 'Male',
+    group: InputGroup.profile,
     allowedValues: ['Male', 'Female'],
+    fullWidth: true,
   ),
   InputFieldSpec(
     key: 'province',
     label: 'Province',
-    helperText: 'Kigali city, Northern/Southern/Eastern/Western Province',
+    helperText: 'Tap any of Rwanda’s 5 provinces or type exact name',
     sampleValue: 'Kigali city',
+    group: InputGroup.profile,
     allowedValues: [
       'Kigali city',
-      'Northern Province',
       'Southern Province',
-      'Eastern Province',
       'Western Province',
+      'Northern Province',
+      'Eastern Province',
     ],
     fullWidth: true,
   ),
   InputFieldSpec(
     key: 'urban_rural',
     label: 'Urban / Rural',
-    helperText: 'Urban or Rural',
+    helperText: 'Tap chip or type Urban / Rural',
     sampleValue: 'Urban',
+    group: InputGroup.profile,
     allowedValues: ['Urban', 'Rural'],
+    fullWidth: true,
+  ),
+
+  // 2. Education & Experience
+  InputFieldSpec(
+    key: 'years_schooling',
+    label: 'Schooling Yrs (0-22)',
+    helperText: 'Total completed years (0–22)',
+    sampleValue: '16',
+    group: InputGroup.skills,
+    isNumeric: true,
+    isInteger: true,
+    minValue: 0,
+    maxValue: 22,
   ),
   InputFieldSpec(
-    key: 'internet_use',
-    label: 'Internet Use',
-    helperText: 'Yes or No',
-    sampleValue: 'Yes',
-    allowedValues: ['Yes', 'No'],
+    key: 'experience_years',
+    label: 'Experience Yrs (0-25)',
+    helperText: 'Years in current work (0–25)',
+    sampleValue: '3',
+    group: InputGroup.skills,
+    isNumeric: true,
+    isInteger: true,
+    minValue: 0,
+    maxValue: 25,
   ),
   InputFieldSpec(
     key: 'education_track',
     label: 'Education Track',
-    helperText: 'No level completed, Completed general, Completed TVET',
+    helperText: 'Tap track or type exact option',
     sampleValue: 'Completed TVET',
-    allowedValues: ['No level completed', 'Completed general', 'Completed TVET'],
+    group: InputGroup.skills,
+    allowedValues: ['Completed TVET', 'Completed general', 'No level completed'],
+    fullWidth: true,
+  ),
+  InputFieldSpec(
+    key: 'internet_use',
+    label: 'Internet Use',
+    helperText: 'Regularly uses internet?',
+    sampleValue: 'Yes',
+    group: InputGroup.skills,
+    allowedValues: ['Yes', 'No'],
+    fullWidth: true,
+  ),
+
+  // 3. Job & Contract Terms
+  InputFieldSpec(
+    key: 'weekly_hours',
+    label: 'Weekly Hours (1-100)',
+    helperText: 'Hours worked per week (1–100)',
+    sampleValue: '45',
+    group: InputGroup.employment,
+    isNumeric: true,
+    isInteger: false,
+    minValue: 1,
+    maxValue: 100,
     fullWidth: true,
   ),
   InputFieldSpec(
     key: 'sector',
     label: 'Sector',
-    helperText: 'Agriculture, Industry, Services',
+    helperText: 'Economic sector of main job',
     sampleValue: 'Services',
+    group: InputGroup.employment,
     allowedValues: ['Agriculture', 'Industry', 'Services'],
+    fullWidth: true,
   ),
   InputFieldSpec(
     key: 'contract_basis',
     label: 'Contract Basis',
-    helperText: 'Written contract or Oral agreement',
+    helperText: 'Formal written contract or informal oral agreement',
     sampleValue: 'Written contract',
+    group: InputGroup.employment,
     allowedValues: ['Written contract', 'Oral agreement'],
+    fullWidth: true,
   ),
   InputFieldSpec(
     key: 'occupation_group',
     label: 'Occupation Group',
-    helperText:
-        'e.g. Technicians and associate professionals, Professionals, Service and sales workers, Elementary occupations...',
+    helperText: 'Tap search icon to choose from all 9 ISCO groups, or type exact name',
     sampleValue: 'Technicians and associate professionals',
+    group: InputGroup.employment,
     allowedValues: [
       'Managers',
       'Professionals',
@@ -157,6 +211,7 @@ const List<InputFieldSpec> kModelInputSpecs = [
       'Elementary occupations',
     ],
     fullWidth: true,
+    useSearchPicker: true,
   ),
 ];
 

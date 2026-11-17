@@ -8,6 +8,8 @@ void main() {
   runApp(const ProviderScope(child: SkillBridgeApp()));
 }
 
+/// Root SkillBridge application configured with Riverpod state management
+/// and the institutional light theme.
 class SkillBridgeApp extends StatelessWidget {
   const SkillBridgeApp({super.key});
 

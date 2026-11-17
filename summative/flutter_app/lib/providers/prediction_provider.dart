@@ -18,6 +18,7 @@ class PredictionState {
     this.result,
     this.errorMessage,
     this.savedDraft = const {},
+    this.submittedInputs = const {},
     this.recentEstimates = const [],
   });
 
@@ -25,6 +26,7 @@ class PredictionState {
   final PredictionResult? result;
   final String? errorMessage;
   final Map<String, String> savedDraft;
+  final Map<String, String> submittedInputs;
   final List<SavedEstimate> recentEstimates;
 
   PredictionState copyWith({
@@ -34,6 +36,7 @@ class PredictionState {
     String? errorMessage,
     bool clearError = false,
     Map<String, String>? savedDraft,
+    Map<String, String>? submittedInputs,
     List<SavedEstimate>? recentEstimates,
   }) {
     return PredictionState(
@@ -41,6 +44,7 @@ class PredictionState {
       result: clearResult ? null : (result ?? this.result),
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
       savedDraft: savedDraft ?? this.savedDraft,
+      submittedInputs: submittedInputs ?? this.submittedInputs,
       recentEstimates: recentEstimates ?? this.recentEstimates,
     );
   }
@@ -118,7 +122,7 @@ class PredictionNotifier extends Notifier<PredictionState> {
       final res =
           await ref.read(earningsApiServiceProvider).predict(validated.request!);
       final summary =
-          '${rawInputs['age']}y • ${rawInputs['education_track']} • ${rawInputs['contract_basis']}';
+          '${rawInputs['age']}y ${rawInputs['sex']} • ${rawInputs['province']} • ${rawInputs['education_track']}';
       final newEntry = SavedEstimate(
         summary: summary,
         incomeKRwf: res.predictedMonthlyIncomeKRwf,
@@ -134,6 +138,7 @@ class PredictionNotifier extends Notifier<PredictionState> {
         isLoading: false,
         result: res,
         clearError: true,
+        submittedInputs: Map<String, String>.from(rawInputs),
         recentEstimates: updatedHistory,
       );
     } catch (err) {

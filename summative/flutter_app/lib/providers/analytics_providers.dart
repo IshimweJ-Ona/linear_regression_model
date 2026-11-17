@@ -23,7 +23,15 @@ class SectionFilterNotifier extends Notifier<String> {
 }
 
 final overviewFilterProvider = NotifierProvider<SectionFilterNotifier, String>(
-  () => SectionFilterNotifier('Ages 18-35'),
+  () => SectionFilterNotifier('All Youth (18-35)'),
+);
+
+final overviewViewModeProvider = NotifierProvider<SectionFilterNotifier, String>(
+  () => SectionFilterNotifier('Summary'),
+);
+
+final heatmapCohortFilterProvider = NotifierProvider<SectionFilterNotifier, String>(
+  () => SectionFilterNotifier('All Youth (18-35)'),
 );
 
 final heatmapFilterProvider = NotifierProvider<SectionFilterNotifier, String>(
@@ -31,7 +39,7 @@ final heatmapFilterProvider = NotifierProvider<SectionFilterNotifier, String>(
 );
 
 final scatterFilterProvider = NotifierProvider<SectionFilterNotifier, String>(
-  () => SectionFilterNotifier('All Tracks'),
+  () => SectionFilterNotifier('All Youth (18-35)'),
 );
 
 final sgdFilterProvider = NotifierProvider<SectionFilterNotifier, String>(
