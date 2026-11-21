@@ -21,7 +21,7 @@ Youth job seekers, SkillBridge career advisors, and employers use these predicti
 > **Note:** Render's free tier spins down after 15 minutes of inactivity and may take up to ~60 seconds to wake up on the first request. Open `/docs` or `/` shortly before testing.
 
 ## 4. Video Demo
-- **YouTube Demo Link:** `[Add your YouTube video demo link here before submitting](https://youtu.be/YOUR_VIDEO_ID)`
+- **YouTube Demo Link:** `(https://www.youtube.com/watch?v=acQHaGQaE4s)`
 
 ## 5. Step-by-Step Instructions to Run the Mobile App
 

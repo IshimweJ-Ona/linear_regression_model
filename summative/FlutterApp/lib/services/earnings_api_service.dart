@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/prediction_models.dart';
 
-/// Replace this URL with your deployed Render web service base URL (no trailing slash).
+
 const String kApiBaseUrl = 'https://skillbridge-earnings-api.onrender.com';
 
 class ApiPredictionException implements Exception {
