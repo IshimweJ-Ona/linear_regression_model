@@ -1,113 +1,59 @@
 """FastAPI service for SkillBridge youth monthly cash earnings predictions."""
 
 from pathlib import Path
-from threading import Lock
 from typing import Annotated, Literal
-import io
 import os
 
 import joblib
 import pandas as pd
-from fastapi import Body, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import Body, FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
-from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.impute import SimpleImputer
-from sklearn.metrics import mean_squared_error, r2_score
-from sklearn.model_selection import train_test_split
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+try:
+    from .retrain import (
+        CATEGORICAL_COLUMNS,
+        FEATURE_COLUMNS,
+        NUMERIC_BOUNDS,
+        NUMERIC_COLUMNS,
+        ModelStore,
+        create_retrain_router,
+    )
+except ImportError:
+    from retrain import (
+        CATEGORICAL_COLUMNS,
+        FEATURE_COLUMNS,
+        NUMERIC_BOUNDS,
+        NUMERIC_COLUMNS,
+        ModelStore,
+        create_retrain_router,
+    )
 
 # Resolve model and baseline dataset paths relative to summative/API.
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / "best_model.pkl"
 TRAINING_DATA_PATH = BASE_DIR / "training_data.csv"
 
-NUMERIC_BOUNDS = {
-    "age": (18, 35),
-    "years_schooling": (0, 22),
-    "experience_years": (0, 25),
-    "weekly_hours": (1.0, 100.0),
-    "household_size": (1, 25),
-}
-NUMERIC_COLUMNS = list(NUMERIC_BOUNDS.keys())
-CATEGORICAL_COLUMNS = [
-    "sex",
-    "province",
-    "urban_rural",
-    "education_track",
-    "internet_use",
-    "sector",
-    "occupation_group",
-    "contract_basis",
-]
-FEATURE_COLUMNS = NUMERIC_COLUMNS + CATEGORICAL_COLUMNS
-TARGET_COLUMN = "monthly_income_k_rwf"
-REQUIRED_CSV_COLUMNS = FEATURE_COLUMNS + [TARGET_COLUMN]
-
-# Prevent race conditions when /retrain swaps active_model during /predict requests.
-model_lock = Lock()
 active_model = joblib.load(MODEL_PATH)
 # Keep single-row inference single-threaded to avoid process-spawning overhead on Render.
 if hasattr(active_model.named_steps.get("model"), "n_jobs"):
     active_model.named_steps["model"].n_jobs = 1
 
 training_df = pd.read_csv(TRAINING_DATA_PATH) if TRAINING_DATA_PATH.is_file() else None
-model_version = "1.0.0"
+model_store = ModelStore(
+    model_path=MODEL_PATH,
+    active_model=active_model,
+    training_df=training_df,
+)
 
 
 def predict_monthly_income(row_df: pd.DataFrame, model=None) -> float:
     """Load the saved pipeline (or reuse active in-memory pipeline) to predict one row."""
-    estimator = model if model is not None else joblib.load(MODEL_PATH)
+    estimator = model if model is not None else joblib.load(model_store.model_path)
     return float(estimator.predict(row_df)[0])
-
-
-def build_pipeline() -> Pipeline:
-    """Build the same preprocessing + RandomForestRegressor pipeline used in the notebook."""
-    preprocessor = ColumnTransformer([
-        ("num", Pipeline([("imputer", SimpleImputer(strategy="median")), ("scaler", StandardScaler())]), NUMERIC_COLUMNS),
-        ("cat", Pipeline([("imputer", SimpleImputer(strategy="most_frequent")), ("ohe", OneHotEncoder(handle_unknown="ignore", sparse_output=False))]), CATEGORICAL_COLUMNS),
-    ])
-    return Pipeline([
-        ("preprocessor", preprocessor),
-        ("model", RandomForestRegressor(n_estimators=200, max_depth=12, min_samples_leaf=5, random_state=42, n_jobs=1)),
-    ])
-
-
-def parse_and_validate_csv(file: UploadFile) -> pd.DataFrame:
-    """Read an uploaded CSV and verify schema, complete rows, and realistic numeric ranges."""
-    if not file.filename or not file.filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Please upload a valid .csv file.")
-
-    try:
-        new_df = pd.read_csv(io.BytesIO(file.file.read()))
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Could not parse CSV file: {exc}") from exc
-
-    missing_cols = [col for col in REQUIRED_CSV_COLUMNS if col not in new_df.columns]
-    if missing_cols:
-        raise HTTPException(status_code=422, detail=f"CSV is missing required columns: {missing_cols}")
-
-    cleaned = new_df[REQUIRED_CSV_COLUMNS].copy()
-    for col in NUMERIC_COLUMNS + [TARGET_COLUMN]:
-        cleaned[col] = pd.to_numeric(cleaned[col], errors="coerce")
-    cleaned = cleaned.dropna().reset_index(drop=True)
-
-    if cleaned.empty:
-        raise HTTPException(status_code=422, detail="Uploaded CSV contains no valid complete rows.")
-
-    in_range = cleaned[TARGET_COLUMN].gt(0) & cleaned[TARGET_COLUMN].le(500)
-    for col, (low, high) in NUMERIC_BOUNDS.items():
-        in_range &= cleaned[col].between(low, high)
-
-    if not in_range.all():
-        raise HTTPException(status_code=422, detail="Uploaded CSV contains out-of-range numeric values.")
-
-    return cleaned
 
 
 class YouthEarningsInput(BaseModel):
@@ -153,18 +99,6 @@ class PredictionResponse(BaseModel):
     predicted_monthly_income_k_rwf: float
     predicted_monthly_income_rwf: int
     currency: str
-    model_version: str
-
-
-class RetrainResponse(BaseModel):
-    """Structured JSON summary returned after CSV retraining."""
-
-    message: str
-    original_rows: int
-    new_rows_added: int
-    total_rows_used: int
-    validation_test_mse: float | None
-    validation_test_r2: float | None
     model_version: str
 
 
@@ -289,16 +223,18 @@ def validation_exception_handler(_request: Request, exc: RequestValidationError)
 @app.get("/", response_model=HealthResponse, tags=["Health"])
 def health_check():
     """Verify the service is awake and show the currently active model version."""
-    return HealthResponse(status="ok", model_version=model_version, docs_url="/docs")
+    with model_store.lock:
+        current_version = model_store.model_version
+    return HealthResponse(status="ok", model_version=current_version, docs_url="/docs")
 
 
 @app.post("/predict", response_model=PredictionResponse, tags=["Prediction"])
 def predict(payload: Annotated[YouthEarningsInput, Body(openapi_examples=SWAGGER_PREDICT_EXAMPLES)]):
     """Validate input JSON and return predicted monthly cash earnings in k RWF and RWF."""
     row_df = pd.DataFrame([payload.model_dump()], columns=FEATURE_COLUMNS)
-    with model_lock:
-        pred_k = predict_monthly_income(row_df, model=active_model)
-        current_version = model_version
+    with model_store.lock:
+        pred_k = predict_monthly_income(row_df, model=model_store.active_model)
+        current_version = model_store.model_version
 
     return PredictionResponse(
         predicted_monthly_income_k_rwf=round(pred_k, 2),
@@ -308,41 +244,4 @@ def predict(payload: Annotated[YouthEarningsInput, Body(openapi_examples=SWAGGER
     )
 
 
-@app.post("/retrain", response_model=RetrainResponse, tags=["Retraining"])
-def retrain(file: UploadFile = File(..., description="CSV with the 13 feature columns plus monthly_income_k_rwf")):
-    """Upload new labeled youth worker rows (.csv), refit RandomForest on original + new data, and activate it."""
-    global active_model, training_df, model_version
-
-    new_df = parse_and_validate_csv(file)
-
-    with model_lock:
-        base_rows = len(training_df) if training_df is not None else 0
-        combined_df = pd.concat([training_df, new_df], ignore_index=True) if training_df is not None else new_df
-
-        X_all, y_all = combined_df[FEATURE_COLUMNS], combined_df[TARGET_COLUMN]
-        val_mse, val_r2 = None, None
-        if len(combined_df) >= 20:
-            X_tr, X_te, y_tr, y_te = train_test_split(X_all, y_all, test_size=0.2, random_state=42)
-            eval_pipe = build_pipeline()
-            eval_pipe.fit(X_tr, y_tr)
-            y_pred = eval_pipe.predict(X_te)
-            val_mse = round(float(mean_squared_error(y_te, y_pred)), 2)
-            val_r2 = round(float(r2_score(y_te, y_pred)), 4)
-
-        updated_pipeline = build_pipeline()
-        updated_pipeline.fit(X_all, y_all)
-        joblib.dump(updated_pipeline, MODEL_PATH)
-
-        active_model = updated_pipeline
-        training_df = combined_df
-        model_version = f"retrained (+{len(new_df)} rows, total={len(combined_df)})"
-
-    return RetrainResponse(
-        message="Model retrained successfully and is now active for /predict.",
-        original_rows=base_rows,
-        new_rows_added=len(new_df),
-        total_rows_used=len(combined_df),
-        validation_test_mse=val_mse,
-        validation_test_r2=val_r2,
-        model_version=model_version,
-    )
+app.include_router(create_retrain_router(model_store))
